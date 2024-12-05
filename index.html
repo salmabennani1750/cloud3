@@ -85,9 +85,26 @@
     .upload-form button:hover {
       background-color: #0056b3;
     }
+    #login-container {
+      text-align: center;
+      margin-top: 20px;
+    }
+    #error-message {
+      color: red;
+    }
   </style>
+  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js"></script>
 </head>
 <body>
+  <div id="login-container">
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Mot de passe" />
+    <button onclick="login()">Se connecter</button>
+  </div>
+  <p id="error-message"></p>
+
   <h1>Liste des Documents</h1>
   <div class="upload-form">
     <input type="file" id="fileInput" />
@@ -98,16 +115,12 @@
     <button id="btn-enseignant" onclick="showDocuments('enseignant')">Espace Enseignant</button>
   </div>
   <div id="documents-container"></div>
-  <div id="login-container">
-    <input type="email" id="email" placeholder="Email" />
-    <input type="password" id="password" placeholder="Mot de passe" />
-    <button onclick="login()">Se connecter</button>
-  </div>
-  <p id="error-message" style="color: red;"></p>
-  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js"></script>
+  
   <script>
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
+
     const firebaseConfig = {
   apiKey: "AIzaSyD520qv3H8cW2IdY04HSVXxSO45hzqMKuY",
   authDomain: "gestiondocuments-e16c7.firebaseapp.com",
@@ -116,9 +129,39 @@
   messagingSenderId: "544467567325",
   appId: "1:544467567325:web:d1e0a1c6f0a2c07e2b1134"
 };
-    const app = firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
-    const db = firebase.firestore(app);
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const apiUrl = 'https://backend-documents-api-d9ehb3dfdzg4grey.francecentral-01.azurewebsites.net';
+    let files = { "etudiant": [], "enseignant": [] };
+
+    async function login() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        const role = await checkUserRole(user.uid);
+        alert(`Connexion réussie en tant que ${role}`);
+        if (role === "etudiant") showDocuments("etudiant");
+        else if (role === "enseignant") showDocuments("enseignant");
+      } catch (error) {
+        document.getElementById("error-message").textContent = `Erreur : ${error.message}`;
+      }
+    }
+
+    async function checkUserRole(uid) {
+      const userDoc = doc(db, "users", uid);
+      const userSnapshot = await getDoc(userDoc);
+      if (userSnapshot.exists()) {
+        return userSnapshot.data().role;
+      } else {
+        throw new Error("Utilisateur non trouvé !");
+      }
+    }
+
     async function uploadFile() {
       const fileInput = document.getElementById('fileInput');
       if (!fileInput.files.length) {
@@ -132,33 +175,25 @@
           method: 'POST',
           body: formData,
         });
-        const result = await response.json();
-        alert(result.message);
+        alert((await response.json()).message);
         fileInput.value = '';
         await fetchFiles();
       } catch (error) {
-        console.error('Erreur lors de l\'upload:', error);
         alert('Erreur lors de l\'upload');
       }
     }
+
     async function deleteFile(filename) {
       if (!confirm(`Êtes-vous sûr(e) de vouloir supprimer le fichier : ${filename} ?`)) return;
       try {
-        const response = await fetch(`${apiUrl}/delete/${filename}`, {
-          method: 'DELETE',
-        });
-        const result = await response.json();
-        alert(result.message);
+        const response = await fetch(`${apiUrl}/delete/${filename}`, { method: 'DELETE' });
+        alert((await response.json()).message);
         await fetchFiles();
       } catch (error) {
-        console.error('Erreur lors de la suppression:', error);
         alert('Erreur lors de la suppression');
       }
     }
-    let files = {
-      "etudiant": [],
-      "enseignant": []
-    };
+
     async function fetchFiles() {
       try {
         const response = await fetch(`${apiUrl}/search`);
@@ -166,10 +201,9 @@
         files.etudiant = data.filter(file => file.includes('etudiant'));
         files.enseignant = data.filter(file => file.includes('enseignant'));
         showDocuments('etudiant');
-      } catch (error) {
-        console.error('Erreur lors de la récupération des fichiers:', error);
-      }
+      } catch (error) {}
     }
+
     function renderDocuments(category) {
       const container = document.getElementById('documents-container');
       container.innerHTML = '';
@@ -189,7 +223,6 @@
         const link = document.createElement('a');
         link.href = `${apiUrl}/download/${file}`;
         link.target = "_blank";
-        link.rel = "noopener noreferrer";
         link.textContent = file;
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('delete-button');
@@ -202,43 +235,14 @@
         container.appendChild(categoryDiv);
       });
     }
+
     function showDocuments(space) {
       document.getElementById('btn-etudiant').disabled = (space === 'etudiant');
       document.getElementById('btn-enseignant').disabled = (space === 'enseignant');
       renderDocuments(space);
     }
-    async function checkUserRole(uid) {
-      const userDoc = db.collection("users").doc(uid);
-      const userSnapshot = await userDoc.get();
-      if (userSnapshot.exists) {
-        const userData = userSnapshot.data();
-        return userData.role;
-      } else {
-        throw new Error("Utilisateur non trouvé !");
-      }
-    }
-    async function login() {
-      const email = document.getElementById("email").value;
-      const password = document.getElementById("password").value;
-      try {
-        const userCredential = await auth.signInWithEmailAndPassword(email, password);
-        const user = userCredential.user;
-        const role = await checkUserRole(user.uid);
-        if (role === "etudiant") {
-          showDocuments("etudiant");
-        } else if (role === "enseignant") {
-          showDocuments("enseignant");
-        }
-        alert(`Connexion réussie en tant que ${role}`);
-      } catch (error) {
-        const errorMessage = document.getElementById("error-message");
-        errorMessage.textContent = `Erreur : ${error.message}`;
-        console.error("Erreur de connexion :", error);
-      }
-    }
-    window.onload = async () => {
-      await fetchFiles();
-    };
+
+    window.onload = async () => await fetchFiles();
   </script>
 </body>
-</html>
+</
